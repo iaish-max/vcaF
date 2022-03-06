@@ -1,8 +1,11 @@
-import React from "react";
+import React, { useState } from "react";
 import { useEffect } from "react";
 import { io } from "socket.io-client";
+import Video from "./Video";
 
 function App() {
+  const [videoPeers, setVideoPeers] = useState([]);
+
   useEffect(() => {
     let socket = io("http://localhost:4000", {
       withCredentials: true,
@@ -15,9 +18,9 @@ function App() {
     // let peerVideo = document.getElementById("peer-video");
     let roomInput = document.getElementById("roomName");
 
-    let rtcPeerConnection;
+    let rtcPeerConnection = {};
     let userStream;
-
+    let userId, peerIdG;
     let divButtonGroup = document.getElementById("btn-group");
     let muteButton = document.getElementById("muteButton");
     let leaveRoomButton = document.getElementById("leaveRoomButton");
@@ -68,8 +71,9 @@ function App() {
       }
     });
 
-    socket.on("created", function () {
+    socket.on("created", function (id) {
       creator = true;
+      userId = id;
       let constraints = { audio: true, video: { width: 500, height: 500 } };
 
       navigator.mediaDevices // enable media services.
@@ -94,8 +98,9 @@ function App() {
         });
     });
 
-    socket.on("joined", function () {
+    socket.on("joined", function (id) {
       creator = false;
+      userId = id;
       let constraints = { audio: true, video: { width: 500, height: 500 } };
 
       navigator.mediaDevices // enable media services.
@@ -116,7 +121,7 @@ function App() {
           myVideo.onloadedmetadata = function (e) {
             myVideo.play(); // once tag is ready we play it
           };
-          socket.emit("ready", roomInput.value); // once a user connect to server we trigger event ready.
+          socket.emit("ready", roomInput.value, userId); // once a user connect to server we trigger event ready.
         })
         .catch(function (err) {
           console.log(err.name + ": " + err.message);
@@ -127,58 +132,61 @@ function App() {
       alert("Room is full,can't join");
     });
 
-    socket.on("ready", function () {
-      if (creator) {
-        rtcPeerConnection = new RTCPeerConnection(iceServers);
-        rtcPeerConnection.onicecandidate = OnIceCandidateFunction; // every time execute when you get an iceCandidate from STUN Server.
-        rtcPeerConnection.ontrack = OnTrackFunction; // use to get media from peer(when BOB get audio or video from john)
+    socket.on("ready", async function (peerId) {
+      peerIdG = peerId;
+      // if (rtcPeerConnection[peerId] === undefined) {
+      rtcPeerConnection[peerId] = new RTCPeerConnection(iceServers);
+      rtcPeerConnection[peerId].onicecandidate = OnIceCandidateFunction; // every time execute when you get an iceCandidate from STUN Server.
+      rtcPeerConnection[peerId].ontrack = OnTrackFunction; // use to get media from peer(when BOB get audio or video from john)
 
-        console.log("ready userStream: ", userStream.getTracks());
+      console.log("ready userStream: ", userStream);
 
-        rtcPeerConnection.addTrack(userStream.getTracks()[0], userStream); // send video tracks to peer
-        rtcPeerConnection.addTrack(userStream.getTracks()[1], userStream); // send audio tracks to peer
-        rtcPeerConnection // send all information of encoding of call etc. send by creator to joiner.
-          .createOffer()
-          .then(function (offer) {
-            rtcPeerConnection.setLocalDescription(offer); // set all the information of host in local discription of host.
-            socket.emit("offer", offer, roomInput.value);
-          })
-          .catch(function (err) {
-            console.log(err);
-          });
-      }
+      rtcPeerConnection[peerId].addTrack(userStream.getTracks()[0], userStream); // send video tracks to peer
+      rtcPeerConnection[peerId].addTrack(userStream.getTracks()[1], userStream); // send audio tracks to peer
+      await rtcPeerConnection[peerId] // send all information of encoding of call etc. send by creator to joiner.
+        .createOffer()
+        .then(async function (offer) {
+          await rtcPeerConnection[peerId].setLocalDescription(offer); // set all the information of host in local discription of host.
+          socket.emit("offer", offer, roomInput.value, userId, peerId);
+        })
+        .catch(function (err) {
+          console.log(err);
+        });
+      // }
     });
 
-    socket.on("candidate", function (candidate) {
+    socket.on("candidate", async function (candidate, peerId) {
       let icecandidate = new RTCIceCandidate(candidate);
-      rtcPeerConnection.addIceCandidate(icecandidate);
+      let pp = await rtcPeerConnection[peerId].addIceCandidate(icecandidate);
     });
 
-    socket.on("offer", function (offer) {
-      if (!creator) {
-        rtcPeerConnection = new RTCPeerConnection(iceServers);
-        rtcPeerConnection.onicecandidate = OnIceCandidateFunction; // every time execute when you get an iceCandidate from STUN Server.
-        rtcPeerConnection.ontrack = OnTrackFunction; // use to get media from peer(when BOB get audio or video from john)
+    socket.on("offer", async function (offer, peerId) {
+      peerIdG = peerId;
+      // if (rtcPeerConnection[peerId] === undefined) {
+      rtcPeerConnection[peerId] = new RTCPeerConnection(iceServers);
+      rtcPeerConnection[peerId].onicecandidate = OnIceCandidateFunction; // every time execute when you get an iceCandidate from STUN Server.
+      rtcPeerConnection[peerId].ontrack = OnTrackFunction; // use to get media from peer(when BOB get audio or video from john)
 
-        console.log("ready userStream: ", userStream.getTracks());
+      console.log("ready userStream: ", userStream.getTracks());
 
-        rtcPeerConnection.addTrack(userStream.getTracks()[0], userStream); // send video tracks to peer
-        rtcPeerConnection.addTrack(userStream.getTracks()[1], userStream); // send audio tracks to peer
-        rtcPeerConnection.setRemoteDescription(offer); // set all information coming from the host to remote Discription of peer.
-        rtcPeerConnection // send all information of encoding of call etc. send by creator to joiner.
-          .createAnswer()
-          .then(function (answer) {
-            rtcPeerConnection.setLocalDescription(answer); // set all the information of peer in local discription of peer.
-            socket.emit("answer", answer, roomInput.value);
-          })
-          .catch(function (err) {
-            console.log(err);
-          });
-      }
+      rtcPeerConnection[peerId].addTrack(userStream.getTracks()[0], userStream); // send video tracks to peer
+      rtcPeerConnection[peerId].addTrack(userStream.getTracks()[1], userStream); // send audio tracks to peer
+      let pp = await rtcPeerConnection[peerId].setRemoteDescription(offer); // set all information coming from the host to remote Discription of peer.
+      await rtcPeerConnection[peerId] // send all information of encoding of call etc. send by creator to joiner.
+        .createAnswer()
+        .then(async function (answer) {
+          let pp = await rtcPeerConnection[peerId].setLocalDescription(answer); // set all the information of peer in local discription of peer.
+          socket.emit("answer", answer, roomInput.value, userId, peerId);
+        })
+        .catch(function (err) {
+          console.log(err);
+        });
+      // }
     });
 
-    socket.on("answer", function (answer) {
-      rtcPeerConnection.setRemoteDescription(answer); // set all information coming from the peer to remote Discription of host.
+    socket.on("answer", async function (answer, peerId) {
+      peerIdG = peerId;
+      await rtcPeerConnection[peerId].setRemoteDescription(answer); // set all information coming from the peer to remote Discription of host.
     });
 
     // leaveRoomButton.addEventListener("click", function () {
@@ -225,39 +233,72 @@ function App() {
     //   }
     // });
 
+    const addPeerVideo = (newStream) => {
+      const isPresent = videoPeers.filter((item) => {
+        if (item.id === newStream.id) return true;
+        else return false;
+      });
+      console.log("isPresent==>", isPresent);
+      console.log("newStream==>", newStream);
+
+      if (isPresent.length == 0) {
+        const temp = videoPeers;
+        temp.push(newStream);
+        console.log("temp===>", temp);
+        setVideoPeers([...temp]);
+
+        console.log("videoPeers in addPeerVideo====>", videoPeers);
+      }
+    };
+
     function OnIceCandidateFunction(event) {
+      console.log("ice event==>", event);
       if (event.candidate) {
-        socket.emit("candidate", event.candidate, roomInput.value);
+        socket.emit(
+          "candidate",
+          event.candidate,
+          roomInput.value,
+          userId,
+          peerIdG
+        );
       }
     }
 
     function OnTrackFunction(event) {
       console.log("event: ", event);
-
-      const video = document.createElement("video");
-      video.setAttribute("class", "peervideo");
-      var body = document.querySelector("body");
-      body.appendChild(video);
-
-      video.srcObject = event.streams[0]; // initialized media information in peerVideo video tag. event.streams is an array has both video and audio streams ai 0,1 position respectively.
-      video.onloadedmetadata = function (e) {
-        video.play(); // once tag is ready we play it
-      };
+      //
+      // const video = document.createElement("video");
+      // video.setAttribute("class", "peervideo");
+      // var body = document.querySelector("body");
+      // body.appendChild(video);
+      console.log("streams==>", event.streams);
+      addPeerVideo(event.streams[0]);
+      console.log("videoPeers==>", videoPeers);
+      // video.srcObject = event.streams[0]; // initialized media information in peerVideo video tag. event.streams is an array has both video and audio streams ai 0,1 position respectively.
+      // video.onloadedmetadata = function (e) {
+      //   video.play(); // once tag is ready we play it
+      // };
     }
-  }, []);
+  });
+  // const pvid = (item, index) => {
+  //   return <Video id={index} videoSrc={item} key={index} />;
+  // };
 
   return (
     <div>
       <div id="video-chat-lobby">
-        <h2 class="text">Video Chat Application</h2>
+        <h2 className="text">Video Chat Application</h2>
         <input id="roomName" type="text" placeholder="Room Name" />
         <button id="join">Join</button>
       </div>
       <div id="video-chat-room">
         {/* <video id="user-video" autoplay muted playsinline></video> */}
         {/* <video id="peer-video" autoplay playsinline></video> */}
+        {videoPeers.map((item, index) => (
+          <Video videoSrc={item} key={index} id={index} />
+        ))}
       </div>
-      <div class="btn-group" id="btn-group" style={{ display: "none" }}>
+      <div className="btn-group" id="btn-group" style={{ display: "none" }}>
         <button id="muteButton">MUTE</button>
         <button id="leaveRoomButton">Leave Room</button>
         <button id="hideCameraButton">Hide Camera</button>
